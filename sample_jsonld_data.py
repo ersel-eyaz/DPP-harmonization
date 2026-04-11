@@ -13,6 +13,14 @@ EXAMPLE_JSONLD_DOCUMENT = {
                 "@value": 120.0,
                 "unitCode": "h"
             },
+            "runtimeHours": {
+                "@value": 121.5,
+                "unitCode": "h"
+            },
+            "operationTimeHRS": {
+                "@value": 122.0,
+                "unitCode": "h"
+            },
             "cleaningCount": {
                 "@value": 14.0,
                 "unitCode": "count"
@@ -33,9 +41,17 @@ EXAMPLE_JSONLD_DOCUMENT = {
                 "@value": 540.0,
                 "unitCode": "g"
             },
+            "weightKG": {
+                "@value": 0.54,
+                "unitCode": "kg"
+            },
             "percentRecycled": {
                 "@value": 35.0,
                 "unitCode": "%"
+            },
+            "recycledRatio": {
+                "@value": 0.35,
+                "unitCode": "ratio"
             },
             "purityLevel": {
                 "@value": 92.5,
@@ -48,6 +64,10 @@ EXAMPLE_JSONLD_DOCUMENT = {
             "distanceKM": {
                 "@value": 85.0,
                 "unitCode": "km"
+            },
+            "routeLengthM": {
+                "@value": 85000.0,
+                "unitCode": "m"
             }
         },
         {
@@ -56,6 +76,26 @@ EXAMPLE_JSONLD_DOCUMENT = {
             "emissions_kg_co2e": {
                 "@value": 12.4,
                 "unitCode": "kg_co2e"
+            },
+            "emissions_g_co2e": {
+                "@value": 12400.0,
+                "unitCode": "g_co2e"
+            }
+        },
+        {
+            "@id": "part-static-001",
+            "@type": "dpp:PartStatic",
+            "weightGRM": {
+                "@value": 220.0,
+                "unitCode": "g"
+            }
+        },
+        {
+            "@id": "part-instance-001",
+            "@type": "dpp:PartInstance",
+            "weightKG": {
+                "@value": 0.22,
+                "unitCode": "kg"
             }
         }
     ]

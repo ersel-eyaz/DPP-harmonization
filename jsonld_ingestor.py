@@ -24,6 +24,8 @@ TYPE_TO_ENTITY = {
     "TransferAction": EntityType.TRANSPORT_STEP,
     "TransportStep": EntityType.TRANSPORT_STEP,
     "GHGEmissionRecord": EntityType.GHG_EMISSION_RECORD,
+    "PartStatic": EntityType.PART_STATIC,
+    "PartInstance": EntityType.PART_INSTANCE,
 }
 
 
