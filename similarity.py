@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
 from jsonld_ingestor import ingest_jsonld_document
-from registry import FLAT_FIELD_DEFINITIONS, CanonicalFieldDefinition
+from registry import CANONICAL_FIELD_REGISTRY, CanonicalFieldDefinition
 from sample_jsonld_data import EXAMPLE_JSONLD_DOCUMENT
 from schemas import RawObservation
+
+import re
 
 
 @dataclass(slots=True)
@@ -16,10 +17,7 @@ class CanonicalCandidate:
     entity_type: str
     description: str
     aliases: tuple[str, ...]
-    source_model: str
-    source_field: str
-    core_text_representation: str
-    context_text_representation: str
+    text_representation: str
 
 
 @dataclass(slots=True)
@@ -29,9 +27,7 @@ class ObservationQuery:
     entity_id: str | None
     raw_unit: str | None
     source_system: str | None
-    core_text_representation: str
-    context_text_representation: str
-
+    text_representation: str
 
 @dataclass(slots=True)
 class ScoredCandidate:
@@ -72,8 +68,8 @@ def rank_candidates(
 
     for candidate in candidates:
         score = lexical_similarity_score(
-            query_text=query.core_text_representation,
-            candidate_text=candidate.core_text_representation,
+            query_text=query.text_representation,
+            candidate_text=candidate.text_representation,
         )
         scored.append(ScoredCandidate(candidate=candidate, score=score))
 
@@ -84,9 +80,8 @@ def rank_candidates(
 def build_canonical_candidates() -> list[CanonicalCandidate]:
     candidates: list[CanonicalCandidate] = []
 
-    for definition in FLAT_FIELD_DEFINITIONS:
-        core_text_representation = build_candidate_core_text(definition)
-        context_text_representation = build_candidate_context_text(definition)
+    for definition in CANONICAL_FIELD_REGISTRY.values():
+        text_representation = build_candidate_text(definition)
 
         candidates.append(
             CanonicalCandidate(
@@ -95,58 +90,40 @@ def build_canonical_candidates() -> list[CanonicalCandidate]:
                 entity_type=definition.entity_type.value,
                 description=definition.description,
                 aliases=definition.allowed_raw_labels,
-                source_model=definition.source_model,
-                source_field=definition.source_field,
-                core_text_representation=core_text_representation,
-                context_text_representation=context_text_representation,
+                text_representation=text_representation,
             )
         )
 
     return candidates
 
 
-def build_candidate_core_text(definition: CanonicalFieldDefinition) -> str:
-    """
-    Core fields used directly for the current lexical ranking.
-    """
+def build_candidate_text(definition: CanonicalFieldDefinition) -> str:
     parts = [
         definition.canonical_concept.value,
         definition.target_field,
         definition.entity_type.value,
-        definition.source_field,
+        definition.description,
         *definition.allowed_raw_labels,
     ]
     return " ".join(part for part in parts if part).strip()
 
 
-def build_candidate_context_text(definition: CanonicalFieldDefinition) -> str:
-    """
-    Context fields kept for future experiments or debugging,
-    but not used in the current score yet.
-    """
-    parts = [
-        definition.source_model,
-        definition.description,
-    ]
-    return " ".join(part for part in parts if part).strip()
-
-
 def build_observation_query(observation: RawObservation) -> ObservationQuery:
-    core_parts = [
+    parts = [
         observation.raw_label,
         observation.entity_type.value,
     ]
 
-    if observation.raw_unit:
-        core_parts.append(observation.raw_unit)
-
-    context_parts = []
-
     if observation.entity_id:
-        context_parts.append(observation.entity_id)
+        parts.append(observation.entity_id)
+
+    if observation.raw_unit:
+        parts.append(observation.raw_unit)
 
     if observation.source_system:
-        context_parts.append(observation.source_system)
+        parts.append(observation.source_system)
+
+    text_representation = " ".join(part for part in parts if part).strip()
 
     return ObservationQuery(
         raw_label=observation.raw_label,
@@ -154,8 +131,7 @@ def build_observation_query(observation: RawObservation) -> ObservationQuery:
         entity_id=observation.entity_id,
         raw_unit=observation.raw_unit,
         source_system=observation.source_system,
-        core_text_representation=" ".join(core_parts).strip(),
-        context_text_representation=" ".join(context_parts).strip(),
+        text_representation=text_representation,
     )
 
 
@@ -170,11 +146,8 @@ def demo_similarity_inputs() -> None:
         print(f"  concept_name: {candidate.concept_name}")
         print(f"  target_field: {candidate.target_field}")
         print(f"  entity_type: {candidate.entity_type}")
-        print(f"  source_model: {candidate.source_model}")
-        print(f"  source_field: {candidate.source_field}")
         print(f"  aliases: {candidate.aliases}")
-        print(f"  core_text_representation: {candidate.core_text_representation}")
-        print(f"  context_text_representation: {candidate.context_text_representation}")
+        print(f"  text_representation: {candidate.text_representation}")
         print()
 
     print("Ingesting JSON-LD document...")
@@ -196,16 +169,13 @@ def demo_similarity_inputs() -> None:
         print(f"  entity_id: {query.entity_id}")
         print(f"  raw_unit: {query.raw_unit}")
         print(f"  source_system: {query.source_system}")
-        print(f"  core_text_representation: {query.core_text_representation}")
-        print(f"  context_text_representation: {query.context_text_representation}")
+        print(f"  text_representation: {query.text_representation}")
         print("  top_candidates:")
 
-        for item in ranked[:5]:
+        for item in ranked[:3]:
             print(
                 f"    - concept={item.candidate.concept_name}, "
                 f"target_field={item.candidate.target_field}, "
-                f"entity_type={item.candidate.entity_type}, "
-                f"source_field={item.candidate.source_field}, "
                 f"score={item.score:.3f}"
             )
 

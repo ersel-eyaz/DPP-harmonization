@@ -9,7 +9,7 @@ from typing import Any
 
 from dataset import HarmonizedDataset
 from enums import CanonicalConcept, EntityType, NormalizedUnit
-from registry import FLAT_FIELD_DEFINITIONS, CanonicalFieldDefinition
+from registry import CANONICAL_FIELD_REGISTRY, CanonicalFieldDefinition
 from schemas import HarmonizationRecord, RawObservation
 
 
@@ -106,15 +106,13 @@ class DataHarmonizer:
             raise TypeError("Expected an object with an `observations: list[RawObservation]` attribute.")
         return self.harmonize_dataset(observations)
 
-    def _build_label_index(self) -> dict[tuple[EntityType, str], list[CanonicalFieldDefinition]]:
-        index: dict[tuple[EntityType, str], list[CanonicalFieldDefinition]] = {}
+    def _build_label_index(self) -> dict[tuple[EntityType, str], CanonicalFieldDefinition]:
+        index: dict[tuple[EntityType, str], CanonicalFieldDefinition] = {}
 
-        for definition in FLAT_FIELD_DEFINITIONS:
-            labels = {definition.source_field, *definition.allowed_raw_labels}
-
-            for raw_label in labels:
+        for definition in CANONICAL_FIELD_REGISTRY.values():
+            for raw_label in definition.allowed_raw_labels:
                 key = (definition.entity_type, self._normalize_text(raw_label))
-                index.setdefault(key, []).append(definition)
+                index[key] = definition
 
         return index
 
@@ -126,25 +124,14 @@ class DataHarmonizer:
         normalized_label = self._normalize_text(raw_label)
         key = (entity_type, normalized_label)
 
-        candidates = self._label_index.get(key)
-        if not candidates:
+        definition = self._label_index.get(key)
+        if definition is None:
             raise LabelMappingError(
                 f"No canonical mapping found for raw label '{raw_label}' "
                 f"under entity type '{entity_type.value}'."
             )
 
-        if len(candidates) > 1:
-            raise LabelMappingError(
-                f"Ambiguous canonical mapping for raw label '{raw_label}' "
-                f"under entity type '{entity_type.value}'."
-            )
-
-        definition = candidates[0]
-
-        exact_source_field_match = raw_label == definition.source_field
-        exact_alias_match = raw_label in definition.allowed_raw_labels
-
-        if exact_source_field_match or exact_alias_match:
+        if raw_label in definition.allowed_raw_labels:
             label_confidence = 1.0
         else:
             label_confidence = 0.92
@@ -224,7 +211,6 @@ class DataHarmonizer:
             "hrs": "h",
             "hour": "h",
             "hours": "h",
-
             # count
             "count": "count",
             "counts": "count",
@@ -232,7 +218,6 @@ class DataHarmonizer:
             "cycles": "cycles",
             "event": "event",
             "events": "events",
-
             # grams / kilograms / milligrams
             "g": "g",
             "gr": "g",
@@ -244,7 +229,6 @@ class DataHarmonizer:
             "mg": "mg",
             "milligram": "mg",
             "milligrams": "mg",
-
             # percent / ratio
             "%": "%",
             "pct": "%",
@@ -252,7 +236,6 @@ class DataHarmonizer:
             "percentage": "%",
             "ratio": "ratio",
             "fraction": "ratio",
-
             # distance
             "km": "km",
             "kilometer": "km",
@@ -264,7 +247,6 @@ class DataHarmonizer:
             "meters": "m",
             "metre": "m",
             "metres": "m",
-
             # emissions
             "kgco2e": "kg_co2e",
             "kg_co2e": "kg_co2e",
@@ -290,42 +272,41 @@ class DataHarmonizer:
         if from_unit == to_unit:
             return value
 
-        # weight -> grams
+        # weight
         if concept == CanonicalConcept.WEIGHT and to_unit == NormalizedUnit.GRAM.value:
             if from_unit == "kg":
                 return value * 1000.0
             if from_unit == "mg":
                 return value / 1000.0
 
-        # recycled content / purity -> percent
-        if concept in {
-            CanonicalConcept.RECYCLED_CONTENT,
-            CanonicalConcept.PURITY_LEVEL,
-        } and to_unit == NormalizedUnit.PERCENT.value:
+        # percentages
+        if concept in {CanonicalConcept.RECYCLED_CONTENT, CanonicalConcept.PURITY_LEVEL} and to_unit == "%":
             if from_unit == "ratio":
                 return value * 100.0
 
-        # transport distance -> kilometers
+        # transport distance
         if concept == CanonicalConcept.TRANSPORT_DISTANCE and to_unit == NormalizedUnit.KILOMETER.value:
             if from_unit == "m":
                 return value / 1000.0
 
-        # ghg emissions -> kg_co2e
+        # ghg emissions
         if concept == CanonicalConcept.GHG_EMISSIONS and to_unit == NormalizedUnit.KILOGRAM_CO2E.value:
             if from_unit == "g_co2e":
                 return value / 1000.0
 
         raise UnitNormalizationError(
-            f"Cannot convert unit '{from_unit}' to '{to_unit}' "
-            f"for concept '{concept.value}'."
+            f"Cannot convert from '{from_unit}' to '{to_unit}' for concept '{concept.value}'."
         )
 
     def _combine_confidences(self, label_confidence: float, unit_confidence: float) -> float:
-        """
-        Simple weighted combination for sandbox use.
-        """
-        combined = (0.65 * label_confidence) + (0.35 * unit_confidence)
-        return round(min(max(combined, 0.0), 1.0), 3)
+        confidence = (label_confidence * 0.65) + (unit_confidence * 0.35)
+        return round(min(max(confidence, 0.0), 1.0), 3)
 
-    def _normalize_text(self, value: str) -> str:
-        return value.strip().casefold()
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        return "".join(ch for ch in value.strip().lower() if ch.isalnum())
+
+
+def harmonize_observations(observations: list[RawObservation]) -> HarmonizationBatchResult:
+    harmonizer = DataHarmonizer()
+    return harmonizer.harmonize_dataset(observations)

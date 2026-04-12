@@ -33,5 +33,3 @@ class EntityType(str, Enum):
     MATERIAL_INSTANCE = "MaterialInstance"
     TRANSPORT_STEP = "TransportStep"
     GHG_EMISSION_RECORD = "GHGEmissionRecord"
-    PART_STATIC = "PartStatic"
-    PART_INSTANCE = "PartInstance"

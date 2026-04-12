@@ -41,14 +41,8 @@ def _build_definition_from_metadata(
     )
 
 
-def build_canonical_field_registry() -> dict[CanonicalConcept, tuple[CanonicalFieldDefinition, ...]]:
-    """
-    Build a registry that allows multiple field definitions per canonical concept.
-
-    This is required for many-to-one harmonization scenarios, where several
-    different raw fields map to the same canonical concept.
-    """
-    grouped: dict[CanonicalConcept, list[CanonicalFieldDefinition]] = {}
+def build_canonical_field_registry() -> dict[CanonicalConcept, CanonicalFieldDefinition]:
+    registry: dict[CanonicalConcept, CanonicalFieldDefinition] = {}
 
     for model in SOURCE_MODELS:
         model_name = model.__name__
@@ -67,28 +61,17 @@ def build_canonical_field_registry() -> dict[CanonicalConcept, tuple[CanonicalFi
             )
 
             concept = definition.canonical_concept
-            grouped.setdefault(concept, []).append(definition)
 
-    return {
-        concept: tuple(definitions)
-        for concept, definitions in grouped.items()
-    }
+            if concept in registry:
+                raise ValueError(
+                    f"Duplicate canonical concept '{concept.value}' found in "
+                    f"{model_name}.{field_name} and "
+                    f"{registry[concept].source_model}.{registry[concept].source_field}"
+                )
 
+            registry[concept] = definition
 
-def build_flat_field_definitions() -> tuple[CanonicalFieldDefinition, ...]:
-    """
-    Flatten the grouped registry into a single tuple of field definitions.
-
-    This is useful for modules that need to iterate over every individual
-    mapping candidate, such as similarity-based ranking or label indexing.
-    """
-    flat_definitions: list[CanonicalFieldDefinition] = []
-
-    for definitions in CANONICAL_FIELD_REGISTRY.values():
-        flat_definitions.extend(definitions)
-
-    return tuple(flat_definitions)
+    return registry
 
 
 CANONICAL_FIELD_REGISTRY = build_canonical_field_registry()
-FLAT_FIELD_DEFINITIONS = build_flat_field_definitions()

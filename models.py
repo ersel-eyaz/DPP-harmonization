@@ -84,30 +84,8 @@ class DPPInstance(BaseModel):
         target_field="operating_hours",
         normalized_unit=NormalizedUnit.HOURS,
         entity_type=EntityType.DPP_INSTANCE,
-        aliases=["operatingHRS", "operatingHours"],
+        aliases=["operatingHRS", "operatingHours", "runtimeHours"],
         description="Cumulative operating time of a product instance.",
-    )
-
-    runtimeHours: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.OPERATING_HOURS,
-        target_field="operating_hours",
-        normalized_unit=NormalizedUnit.HOURS,
-        entity_type=EntityType.DPP_INSTANCE,
-        aliases=["runtimeHours", "runtime_hrs", "hoursRuntime"],
-        description="Runtime of a product instance expressed in hours.",
-    )
-
-    operationTimeHRS: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.OPERATING_HOURS,
-        target_field="operating_hours",
-        normalized_unit=NormalizedUnit.HOURS,
-        entity_type=EntityType.DPP_INSTANCE,
-        aliases=["operationTimeHRS", "operationHours", "timeInOperation"],
-        description="Operational time of a product instance expressed in hours.",
     )
 
     backupLink: str | None = Field(default=None)
@@ -124,18 +102,7 @@ class MaterialInstance(BaseModel):
         normalized_unit=NormalizedUnit.GRAM,
         entity_type=EntityType.MATERIAL_INSTANCE,
         aliases=["weightGRM", "weight_g", "massGram"],
-        description="Mass of a material instance expressed in grams.",
-    )
-
-    weightKG: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.WEIGHT,
-        target_field="weight",
-        normalized_unit=NormalizedUnit.GRAM,
-        entity_type=EntityType.MATERIAL_INSTANCE,
-        aliases=["weightKG", "weight_kg", "massKilogram"],
-        description="Mass of a material instance expressed in kilograms.",
+        description="Mass of a material instance.",
     )
 
     percentRecycled: float = semantic_field(
@@ -147,19 +114,7 @@ class MaterialInstance(BaseModel):
         normalized_unit=NormalizedUnit.PERCENT,
         entity_type=EntityType.MATERIAL_INSTANCE,
         aliases=["percentRecycled", "recycledPercent", "recycled_content_pct"],
-        description="Share of recycled material content expressed as a percentage.",
-    )
-
-    recycledRatio: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        canonical_concept=CanonicalConcept.RECYCLED_CONTENT,
-        target_field="recycled_content",
-        normalized_unit=NormalizedUnit.PERCENT,
-        entity_type=EntityType.MATERIAL_INSTANCE,
-        aliases=["recycledRatio", "recycled_fraction", "ratioRecycled"],
-        description="Share of recycled material content expressed as a ratio.",
+        description="Share of recycled material content.",
     )
 
     purityLevel: float = semantic_field(
@@ -184,18 +139,7 @@ class TransportStep(BaseModel):
         normalized_unit=NormalizedUnit.KILOMETER,
         entity_type=EntityType.TRANSPORT_STEP,
         aliases=["distanceKM", "distance_km", "transportDistance"],
-        description="Distance covered by a transport step expressed in kilometers.",
-    )
-
-    routeLengthM: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.TRANSPORT_DISTANCE,
-        target_field="transport_distance",
-        normalized_unit=NormalizedUnit.KILOMETER,
-        entity_type=EntityType.TRANSPORT_STEP,
-        aliases=["routeLengthM", "distance_m", "routeMeters"],
-        description="Distance covered by a transport step expressed in meters.",
+        description="Distance covered by a transport step.",
     )
 
 
@@ -211,53 +155,10 @@ class GHGEmissionRecord(BaseModel):
         description="Greenhouse gas emissions expressed in kg CO2e.",
     )
 
-    emissions_g_co2e: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.GHG_EMISSIONS,
-        target_field="ghg_emissions",
-        normalized_unit=NormalizedUnit.KILOGRAM_CO2E,
-        entity_type=EntityType.GHG_EMISSION_RECORD,
-        aliases=["emissions_g_co2e", "ghg_g_co2e", "co2e_grams"],
-        description="Greenhouse gas emissions expressed in grams of CO2e.",
-    )
-
-
-class PartStatic(BaseModel):
-    id: str | None = Field(default=None)
-
-    weightGRM: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.WEIGHT,
-        target_field="weight",
-        normalized_unit=NormalizedUnit.GRAM,
-        entity_type=EntityType.PART_STATIC,
-        aliases=["weightGRM", "partWeightGRM", "staticWeightGram"],
-        description="Static part weight expressed in grams.",
-    )
-
-
-class PartInstance(BaseModel):
-    id: str | None = Field(default=None)
-
-    weightKG: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.WEIGHT,
-        target_field="weight",
-        normalized_unit=NormalizedUnit.GRAM,
-        entity_type=EntityType.PART_INSTANCE,
-        aliases=["weightKG", "partWeightKG", "instanceWeightKilogram"],
-        description="Instance-specific part weight expressed in kilograms.",
-    )
-
 
 SOURCE_MODELS = (
     DPPInstance,
     MaterialInstance,
     TransportStep,
     GHGEmissionRecord,
-    PartStatic,
-    PartInstance,
 )
