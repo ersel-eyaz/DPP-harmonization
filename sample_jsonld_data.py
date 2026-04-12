@@ -43,6 +43,14 @@ EXAMPLE_JSONLD_DOCUMENT = {
             }
         },
         {
+            "@id": "part-static-001",
+            "@type": "dpp:PartStatic",
+            "weightGRM": {
+                "@value": 1800.0,
+                "unitCode": "g"
+            }
+        },
+        {
             "@id": "transport-001",
             "@type": "schema:TransferAction",
             "distanceKM": {

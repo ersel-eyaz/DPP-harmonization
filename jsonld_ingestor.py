@@ -24,6 +24,7 @@ TYPE_TO_ENTITY = {
     "TransferAction": EntityType.TRANSPORT_STEP,
     "TransportStep": EntityType.TRANSPORT_STEP,
     "GHGEmissionRecord": EntityType.GHG_EMISSION_RECORD,
+    "PartStatic": EntityType.PART_STATIC,
 }
 
 
@@ -145,15 +146,15 @@ def _resolve_entity_type(node: dict[str, Any]) -> EntityType | None:
 
 
 def _resolve_entity_id(node: dict[str, Any]) -> str | None:
-    raw_id = node.get("@id") or node.get("id")
-    if raw_id is None:
-        return None
-    return str(raw_id)
+    raw_id = node.get("@id")
+    if isinstance(raw_id, str) and raw_id.strip():
+        return raw_id.strip()
+    return None
 
 
 def _strip_prefix(value: str) -> str:
     if ":" in value:
-        return value.split(":")[-1]
+        return value.split(":", 1)[1]
     return value
 
 

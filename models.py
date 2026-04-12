@@ -130,6 +130,21 @@ class MaterialInstance(BaseModel):
     )
 
 
+class PartStatic(BaseModel):
+    id: str | None = Field(default=None)
+
+    weightGRM: float = semantic_field(
+        default=0.0,
+        ge=0.0,
+        canonical_concept=CanonicalConcept.WEIGHT,
+        target_field="weight",
+        normalized_unit=NormalizedUnit.GRAM,
+        entity_type=EntityType.PART_STATIC,
+        aliases=["weightGRM", "partWeightGRM", "componentWeightGRM"],
+        description="Mass of a static part definition.",
+    )
+
+
 class TransportStep(BaseModel):
     distanceKM: float = semantic_field(
         default=0.0,
@@ -159,6 +174,7 @@ class GHGEmissionRecord(BaseModel):
 SOURCE_MODELS = (
     DPPInstance,
     MaterialInstance,
+    PartStatic,
     TransportStep,
     GHGEmissionRecord,
 )

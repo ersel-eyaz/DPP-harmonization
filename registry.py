@@ -41,8 +41,15 @@ def _build_definition_from_metadata(
     )
 
 
-def build_canonical_field_registry() -> dict[CanonicalConcept, CanonicalFieldDefinition]:
-    registry: dict[CanonicalConcept, CanonicalFieldDefinition] = {}
+def build_canonical_field_registry() -> dict[CanonicalConcept, tuple[CanonicalFieldDefinition, ...]]:
+    """
+    Build a registry that allows multiple field definitions per canonical concept.
+
+    This is required for many-to-one harmonization scenarios, where several
+    different source fields across one or more entities may map to the same
+    canonical concept.
+    """
+    grouped: dict[CanonicalConcept, list[CanonicalFieldDefinition]] = {}
 
     for model in SOURCE_MODELS:
         model_name = model.__name__
@@ -61,17 +68,28 @@ def build_canonical_field_registry() -> dict[CanonicalConcept, CanonicalFieldDef
             )
 
             concept = definition.canonical_concept
+            grouped.setdefault(concept, []).append(definition)
 
-            if concept in registry:
-                raise ValueError(
-                    f"Duplicate canonical concept '{concept.value}' found in "
-                    f"{model_name}.{field_name} and "
-                    f"{registry[concept].source_model}.{registry[concept].source_field}"
-                )
+    return {
+        concept: tuple(definitions)
+        for concept, definitions in grouped.items()
+    }
 
-            registry[concept] = definition
 
-    return registry
+def build_flat_field_definitions() -> tuple[CanonicalFieldDefinition, ...]:
+    """
+    Flatten the grouped registry into a single tuple of field definitions.
+
+    This is convenient for consumers that need to iterate across all source
+    field definitions regardless of their canonical grouping.
+    """
+    definitions: list[CanonicalFieldDefinition] = []
+
+    for grouped_definitions in CANONICAL_FIELD_REGISTRY.values():
+        definitions.extend(grouped_definitions)
+
+    return tuple(definitions)
 
 
 CANONICAL_FIELD_REGISTRY = build_canonical_field_registry()
+FLAT_FIELD_DEFINITIONS = build_flat_field_definitions()
