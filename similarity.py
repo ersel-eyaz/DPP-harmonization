@@ -9,6 +9,17 @@ from sample_jsonld_data import EXAMPLE_JSONLD_DOCUMENT
 from schemas import RawObservation
 
 
+# Lightweight suggestion sandbox for semantic field matching.
+# It builds canonical candidate descriptions from the registry, converts raw
+# observations into textual queries, and ranks candidates with a simple
+# lexical overlap score.
+#
+# This module is intentionally not the main harmonization resolver.
+# Structured signals such as entity type, units, and other hard constraints
+# should be handled by the rule-based harmonization pipeline. Here, they are
+# kept mainly for inspection, debugging, and fallback suggestion generation.
+
+
 @dataclass(slots=True)
 class CanonicalCandidate:
     concept_name: str
@@ -29,6 +40,9 @@ class ObservationQuery:
     entity_id: str | None
     raw_unit: str | None
     source_system: str | None
+    source_node_type: str | None
+    source_path: str | None
+    neighbor_labels: list[str]
     core_text_representation: str
     context_text_representation: str
 
@@ -68,6 +82,12 @@ def rank_candidates(
     query: ObservationQuery,
     candidates: list[CanonicalCandidate],
 ) -> list[ScoredCandidate]:
+    """
+    Rank all canonical candidates by lexical similarity only.
+
+    This ranking is deliberately generic and should be interpreted as a
+    suggestion mechanism, not as the final harmonization decision.
+    """
     scored: list[ScoredCandidate] = []
 
     for candidate in candidates:
@@ -77,7 +97,14 @@ def rank_candidates(
         )
         scored.append(ScoredCandidate(candidate=candidate, score=score))
 
-    scored.sort(key=lambda item: item.score, reverse=True)
+    scored.sort(
+        key=lambda item: (
+            -item.score,
+            item.candidate.entity_type,
+            item.candidate.concept_name,
+            item.candidate.source_field,
+        )
+    )
     return scored
 
 
@@ -107,7 +134,7 @@ def build_canonical_candidates() -> list[CanonicalCandidate]:
 
 def build_candidate_core_text(definition: CanonicalFieldDefinition) -> str:
     """
-    Build the text used directly for lexical ranking.
+    Build the text used directly for lexical suggestion ranking.
     """
     parts = [
         definition.canonical_concept.value,
@@ -121,7 +148,7 @@ def build_candidate_core_text(definition: CanonicalFieldDefinition) -> str:
 
 def build_candidate_context_text(definition: CanonicalFieldDefinition) -> str:
     """
-    Build auxiliary context text kept for debugging or future scoring experiments.
+    Build auxiliary context text kept for debugging or future experiments.
     """
     parts = [
         definition.source_model,
@@ -134,19 +161,22 @@ def build_observation_query(observation: RawObservation) -> ObservationQuery:
     """
     Build a query representation from a raw observation.
 
-    The core text contains the fields currently intended for lexical ranking.
-    The context text keeps additional metadata that may become useful later,
-    but is intentionally excluded from the current score calculation.
+    The core text stays intentionally compact and label-centered because this
+    module is now treated as a fallback suggestion tool rather than the main
+    structured resolver.
+
+    Contextual metadata is still preserved for inspection and future
+    experiments.
     """
-    core_parts = [
-        observation.raw_label,
-        observation.entity_type.value,
-    ]
+    core_parts = [observation.raw_label]
 
     if observation.raw_unit:
         core_parts.append(observation.raw_unit)
 
-    context_parts = []
+    context_parts = [observation.entity_type.value]
+
+    if observation.source_node_type:
+        context_parts.append(observation.source_node_type)
 
     if observation.entity_id:
         context_parts.append(observation.entity_id)
@@ -154,12 +184,20 @@ def build_observation_query(observation: RawObservation) -> ObservationQuery:
     if observation.source_system:
         context_parts.append(observation.source_system)
 
+    if observation.source_path:
+        context_parts.append(observation.source_path)
+
+    context_parts.extend(observation.neighbor_labels)
+
     return ObservationQuery(
         raw_label=observation.raw_label,
         entity_type=observation.entity_type.value,
         entity_id=observation.entity_id,
         raw_unit=observation.raw_unit,
         source_system=observation.source_system,
+        source_node_type=observation.source_node_type,
+        source_path=observation.source_path,
+        neighbor_labels=observation.neighbor_labels,
         core_text_representation=" ".join(core_parts).strip(),
         context_text_representation=" ".join(context_parts).strip(),
     )
@@ -184,14 +222,11 @@ def demo_similarity_inputs() -> None:
         print()
 
     print("Ingesting JSON-LD document...")
-    raw_dataset = ingest_jsonld_document(
-        EXAMPLE_JSONLD_DOCUMENT,
-        source_system="jsonld_demo",
-    )
+    raw_dataset = ingest_jsonld_document(EXAMPLE_JSONLD_DOCUMENT, source_system="jsonld_demo")
     print(f"Extracted raw observations: {len(raw_dataset.observations)}")
     print()
 
-    print("Building observation queries and ranking candidates...")
+    print("Building observation queries and lexical suggestions...")
     for observation in raw_dataset.observations:
         query = build_observation_query(observation)
         ranked = rank_candidates(query, candidates)
@@ -202,19 +237,24 @@ def demo_similarity_inputs() -> None:
         print(f"  entity_id: {query.entity_id}")
         print(f"  raw_unit: {query.raw_unit}")
         print(f"  source_system: {query.source_system}")
+        print(f"  source_node_type: {query.source_node_type}")
+        print(f"  source_path: {query.source_path}")
+        print(f"  neighbor_labels: {query.neighbor_labels}")
         print(f"  core_text_representation: {query.core_text_representation}")
         print(f"  context_text_representation: {query.context_text_representation}")
         print("  top_candidates:")
 
         for item in ranked[:3]:
+            candidate = item.candidate
             print(
                 "    - "
-                f"concept={item.candidate.concept_name}, "
-                f"target_field={item.candidate.target_field}, "
-                f"entity_type={item.candidate.entity_type}, "
-                f"source_field={item.candidate.source_field}, "
+                f"concept={candidate.concept_name}, "
+                f"target_field={candidate.target_field}, "
+                f"entity_type={candidate.entity_type}, "
+                f"source_field={candidate.source_field}, "
                 f"score={item.score:.3f}"
             )
+
         print()
 
 

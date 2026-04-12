@@ -1,7 +1,3 @@
-# Semantic harmonization logic for the DPP sandbox.
-# It maps raw observations to canonical concepts, normalizes units and values,
-# assigns a confidence score, and returns structured harmonization results.
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -11,6 +7,19 @@ from dataset import HarmonizedDataset
 from enums import CanonicalConcept, EntityType, NormalizedUnit
 from registry import FLAT_FIELD_DEFINITIONS, CanonicalFieldDefinition
 from schemas import HarmonizationRecord, RawObservation
+
+
+# Rule-based semantic harmonization logic for the DPP sandbox.
+# This module is the main harmonization resolver.
+#
+# Resolution strategy:
+# - filter by structured constraints first (especially entity type)
+# - resolve labels deterministically through source fields and aliases
+# - normalize values and units
+# - return structured harmonization records with a transparent confidence score
+#
+# Similarity-based ranking is intentionally not the main decision mechanism here.
+# It can still be used separately as a fallback suggestion tool for unknown labels.
 
 
 class HarmonizationError(ValueError):
@@ -43,13 +52,13 @@ class HarmonizationBatchResult:
 
 class DataHarmonizer:
     """
-    Harmonizes raw observations into canonical semantic records.
+    Deterministic rule-based harmonizer for raw observations.
 
     Current behavior:
-    - label matching via registry aliases
-    - entity-aware mapping
-    - basic unit normalization and conversion
-    - confidence scoring based on mapping/directness
+    - entity-aware label resolution via registry metadata
+    - exact/alias-based canonical mapping
+    - unit normalization and conversion
+    - basic confidence scoring based on how direct the mapping was
     """
 
     def __init__(self) -> None:
@@ -99,7 +108,7 @@ class DataHarmonizer:
 
     def harmonize_dataset_container(self, raw_dataset: Any) -> HarmonizationBatchResult:
         """
-        Accepts a RawDataset-like object with an `observations` attribute.
+        Accept a RawDataset-like object with an `observations` attribute.
         """
         observations = getattr(raw_dataset, "observations", None)
         if observations is None or not isinstance(observations, list):
@@ -107,6 +116,12 @@ class DataHarmonizer:
         return self.harmonize_dataset(observations)
 
     def _build_label_index(self) -> dict[tuple[EntityType, str], list[CanonicalFieldDefinition]]:
+        """
+        Build an entity-aware lookup index.
+
+        The same raw label may exist across multiple entities, so entity type
+        is part of the key and acts as a hard structural constraint.
+        """
         index: dict[tuple[EntityType, str], list[CanonicalFieldDefinition]] = {}
 
         for definition in FLAT_FIELD_DEFINITIONS:
@@ -123,6 +138,12 @@ class DataHarmonizer:
         entity_type: EntityType,
         raw_label: str,
     ) -> tuple[CanonicalFieldDefinition, float]:
+        """
+        Resolve a canonical field definition deterministically.
+
+        Resolution is restricted to the given entity type. This avoids treating
+        entity type as a soft signal and instead uses it as a hard filter.
+        """
         normalized_label = self._normalize_text(raw_label)
         key = (entity_type, normalized_label)
 
@@ -143,11 +164,18 @@ class DataHarmonizer:
 
         exact_source_field_match = raw_label == definition.source_field
         exact_alias_match = raw_label in definition.allowed_raw_labels
+        normalized_source_field_match = normalized_label == self._normalize_text(definition.source_field)
+        normalized_alias_match = any(
+            normalized_label == self._normalize_text(alias)
+            for alias in definition.allowed_raw_labels
+        )
 
         if exact_source_field_match or exact_alias_match:
             label_confidence = 1.0
+        elif normalized_source_field_match or normalized_alias_match:
+            label_confidence = 0.95
         else:
-            label_confidence = 0.92
+            label_confidence = 0.9
 
         return definition, label_confidence
 
@@ -166,7 +194,6 @@ class DataHarmonizer:
             if raw_value == "":
                 return None, 0.7
 
-        # Count-like concepts can tolerate missing units better.
         if concept in {
             CanonicalConcept.CLEANING_COUNT,
             CanonicalConcept.DESCALING_COUNT,
@@ -242,38 +269,26 @@ class DataHarmonizer:
             "mg": "mg",
             "milligram": "mg",
             "milligrams": "mg",
-            # percent / ratio
+            # percent
             "%": "%",
             "pct": "%",
             "percent": "%",
             "percentage": "%",
-            "ratio": "ratio",
-            "fraction": "ratio",
             # distance
             "km": "km",
             "kilometer": "km",
             "kilometers": "km",
-            "kilometre": "km",
-            "kilometres": "km",
-            "m": "m",
-            "meter": "m",
-            "meters": "m",
-            "metre": "m",
-            "metres": "m",
-            # emissions
-            "kgco2e": "kg_co2e",
+            # ghg emissions
             "kg_co2e": "kg_co2e",
-            "kgco2eq": "kg_co2e",
-            "kgco2equivalent": "kg_co2e",
-            "kgco2eqv": "kg_co2e",
-            "gco2e": "g_co2e",
-            "g_co2e": "g_co2e",
+            "kgco2e": "kg_co2e",
+            "kg-co2e": "kg_co2e",
+            "kg co2e": "kg_co2e",
         }
 
-        normalized = unit_aliases.get(token)
-        if normalized is None:
-            raise UnitNormalizationError(f"Unknown or unsupported raw unit '{raw_unit}'.")
-        return normalized
+        try:
+            return unit_aliases[token]
+        except KeyError as exc:
+            raise UnitNormalizationError(f"Unsupported raw unit '{raw_unit}'.") from exc
 
     def _convert_unit_value(
         self,
@@ -285,26 +300,10 @@ class DataHarmonizer:
         if from_unit == to_unit:
             return value
 
-        # weight
-        if concept == CanonicalConcept.WEIGHT and to_unit == NormalizedUnit.GRAM.value:
-            if from_unit == "kg":
+        if concept == CanonicalConcept.WEIGHT:
+            if from_unit == "kg" and to_unit == "g":
                 return value * 1000.0
-            if from_unit == "mg":
-                return value / 1000.0
-
-        # recycled content / purity
-        if concept in {CanonicalConcept.RECYCLED_CONTENT, CanonicalConcept.PURITY_LEVEL}:
-            if to_unit == NormalizedUnit.PERCENT.value and from_unit == "ratio":
-                return value * 100.0
-
-        # distance
-        if concept == CanonicalConcept.TRANSPORT_DISTANCE and to_unit == NormalizedUnit.KILOMETER.value:
-            if from_unit == "m":
-                return value / 1000.0
-
-        # emissions
-        if concept == CanonicalConcept.GHG_EMISSIONS and to_unit == NormalizedUnit.KILOGRAM_CO2E.value:
-            if from_unit == "g_co2e":
+            if from_unit == "mg" and to_unit == "g":
                 return value / 1000.0
 
         raise UnitNormalizationError(
@@ -313,8 +312,25 @@ class DataHarmonizer:
         )
 
     def _combine_confidences(self, label_confidence: float, unit_confidence: float) -> float:
-        combined = label_confidence * unit_confidence
-        return round(combined, 3)
+        """
+        Combine label and normalization confidence into a single score.
+        """
+        score = 0.7 * label_confidence + 0.3 * unit_confidence
+        return round(score, 4)
 
-    def _normalize_text(self, value: str) -> str:
-        return value.strip().lower()
+    def _normalize_text(self, text: str) -> str:
+        """
+        Normalize labels for deterministic lookup.
+
+        This is intentionally lightweight:
+        - strip whitespace
+        - lowercase
+        - collapse separators commonly seen in field names
+        """
+        return (
+            text.strip()
+            .lower()
+            .replace("-", "")
+            .replace("_", "")
+            .replace(" ", "")
+        )

@@ -1,7 +1,3 @@
-# Generic JSON-LD ingestion layer for the DPP harmonization sandbox.
-# It traverses JSON-LD nodes and extracts scalar/value-object properties
-# into RawObservation objects without hardcoding field names.
-
 from __future__ import annotations
 
 from typing import Any
@@ -9,6 +5,16 @@ from typing import Any
 from dataset import RawDataset
 from enums import EntityType
 from schemas import RawObservation
+
+
+# Generic JSON-LD ingestion layer for the DPP harmonization sandbox.
+# It traverses JSON-LD nodes and extracts scalar/value-object properties
+# into RawObservation objects without hardcoding field names.
+#
+# In addition to raw values, the ingestor preserves lightweight node context
+# such as the originating node type, a simple source path, and neighboring
+# field labels. This allows later harmonization stages to reason over more
+# than isolated field names.
 
 
 class JSONLDIngestionError(ValueError):
@@ -38,15 +44,31 @@ def ingest_jsonld_document(document: dict[str, Any], source_system: str = "jsonl
         graph = document["@graph"]
         if not isinstance(graph, list):
             raise JSONLDIngestionError("'@graph' must be a list.")
-        for node in graph:
-            _extract_node(node=node, dataset=dataset, source_system=source_system)
+
+        for index, node in enumerate(graph):
+            _extract_node(
+                node=node,
+                dataset=dataset,
+                source_system=source_system,
+                node_path=f"@graph[{index}]",
+            )
     else:
-        _extract_node(node=document, dataset=dataset, source_system=source_system)
+        _extract_node(
+            node=document,
+            dataset=dataset,
+            source_system=source_system,
+            node_path="$",
+        )
 
     return dataset
 
 
-def _extract_node(node: dict[str, Any], dataset: RawDataset, source_system: str) -> None:
+def _extract_node(
+    node: dict[str, Any],
+    dataset: RawDataset,
+    source_system: str,
+    node_path: str,
+) -> None:
     if not isinstance(node, dict):
         return
 
@@ -55,6 +77,8 @@ def _extract_node(node: dict[str, Any], dataset: RawDataset, source_system: str)
         return
 
     entity_id = _resolve_entity_id(node)
+    source_node_type = _resolve_node_type_name(node)
+    neighbor_labels = _collect_neighbor_labels(node)
 
     for key, value in node.items():
         if key in {"@context", "@id", "@type"}:
@@ -73,8 +97,22 @@ def _extract_node(node: dict[str, Any], dataset: RawDataset, source_system: str)
                     raw_unit=raw_unit,
                     source_system=source_system,
                     source_file="jsonld_document",
+                    source_node_type=source_node_type,
+                    source_path=f"{node_path}.{raw_label}",
+                    neighbor_labels=neighbor_labels,
                 )
             )
+
+
+def _collect_neighbor_labels(node: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+
+    for key in node:
+        if key in {"@context", "@id", "@type"}:
+            continue
+        labels.append(_strip_prefix(key))
+
+    return labels
 
 
 def _extract_property_values(value: Any) -> list[tuple[Any, str | None]]:
@@ -111,7 +149,7 @@ def _extract_literal_from_dict(value: dict[str, Any]) -> tuple[Any, str | None] 
         raw_unit = _extract_unit(value)
         return value["@value"], raw_unit
 
-    # simple value object fallback: {"value": 120, "unit": "h"}
+    # Simple value object fallback: {"value": 120, "unit": "h"}
     if "value" in value:
         raw_unit = _extract_unit(value)
         return value["value"], raw_unit
@@ -137,18 +175,33 @@ def _resolve_entity_type(node: dict[str, Any]) -> EntityType | None:
     for candidate in candidates:
         if not isinstance(candidate, str):
             continue
-        simplified = _strip_prefix(candidate)
-        entity_type = TYPE_TO_ENTITY.get(simplified)
-        if entity_type is not None:
-            return entity_type
+
+        local_type = _strip_prefix(candidate)
+        mapped = TYPE_TO_ENTITY.get(local_type)
+        if mapped is not None:
+            return mapped
+
+    return None
+
+
+def _resolve_node_type_name(node: dict[str, Any]) -> str | None:
+    raw_type = node.get("@type")
+    if raw_type is None:
+        return None
+
+    candidates = raw_type if isinstance(raw_type, list) else [raw_type]
+
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            return _strip_prefix(candidate)
 
     return None
 
 
 def _resolve_entity_id(node: dict[str, Any]) -> str | None:
-    raw_id = node.get("@id")
-    if isinstance(raw_id, str) and raw_id.strip():
-        return raw_id.strip()
+    value = node.get("@id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
     return None
 
 
