@@ -129,7 +129,10 @@ class DataHarmonizer:
 
             for raw_label in labels:
                 key = (definition.entity_type, self._normalize_text(raw_label))
-                index.setdefault(key, []).append(definition)
+                existing = index.setdefault(key, [])
+
+                if definition not in existing:
+                    existing.append(definition)
 
         return index
 
