@@ -7,6 +7,11 @@ from dataset import HarmonizedDataset
 from enums import CanonicalConcept, EntityType, NormalizedUnit
 from registry import FLAT_FIELD_DEFINITIONS, CanonicalFieldDefinition
 from schemas import HarmonizationRecord, RawObservation
+from similarity import (
+    build_canonical_candidates,
+    build_observation_query,
+    rank_candidates,
+)
 
 
 # Rule-based semantic harmonization logic for the DPP sandbox.
@@ -15,11 +20,10 @@ from schemas import HarmonizationRecord, RawObservation
 # Resolution strategy:
 # - filter by structured constraints first (especially entity type)
 # - resolve labels deterministically through source fields and aliases
+# - use lightweight node context when available
+# - if rule-based resolution fails, try similarity-based fallback
 # - normalize values and units
 # - return structured harmonization records with a transparent confidence score
-#
-# Similarity-based ranking is intentionally not the main decision mechanism here.
-# It can still be used separately as a fallback suggestion tool for unknown labels.
 
 
 class HarmonizationError(ValueError):
@@ -27,7 +31,7 @@ class HarmonizationError(ValueError):
 
 
 class LabelMappingError(HarmonizationError):
-    """Raised when no canonical mapping can be found for a raw label."""
+    """Raised when no canonical mapping can be found."""
 
 
 class UnitNormalizationError(HarmonizationError):
@@ -57,18 +61,19 @@ class DataHarmonizer:
     Current behavior:
     - entity-aware label resolution via registry metadata
     - exact/alias-based canonical mapping
+    - lightweight context-aware disambiguation
+    - similarity-based fallback for unresolved labels
     - unit normalization and conversion
-    - basic confidence scoring based on how direct the mapping was
+    - basic confidence scoring based on mapping directness and context support
     """
 
-    def __init__(self) -> None:
+    def __init__(self, similarity_threshold: float = 0.55) -> None:
         self._label_index = self._build_label_index()
+        self._similarity_threshold = similarity_threshold
+        self._similarity_candidates = build_canonical_candidates()
 
     def harmonize_observation(self, observation: RawObservation) -> HarmonizationRecord:
-        definition, label_confidence = self._resolve_definition(
-            entity_type=observation.entity_type,
-            raw_label=observation.raw_label,
-        )
+        definition, label_confidence = self._resolve_definition_with_fallback(observation)
 
         normalized_value, unit_confidence = self._normalize_value_and_unit(
             raw_value=observation.raw_value,
@@ -136,16 +141,35 @@ class DataHarmonizer:
 
         return index
 
+    def _resolve_definition_with_fallback(
+        self,
+        observation: RawObservation,
+    ) -> tuple[CanonicalFieldDefinition, float]:
+        """
+        Try deterministic resolution first. If it fails, use similarity-based fallback.
+        """
+        try:
+            return self._resolve_definition(
+                entity_type=observation.entity_type,
+                raw_label=observation.raw_label,
+                source_node_type=observation.source_node_type,
+                neighbor_labels=observation.neighbor_labels,
+            )
+        except LabelMappingError:
+            return self._resolve_definition_with_similarity(observation)
+
     def _resolve_definition(
         self,
         entity_type: EntityType,
         raw_label: str,
+        source_node_type: str | None = None,
+        neighbor_labels: list[str] | None = None,
     ) -> tuple[CanonicalFieldDefinition, float]:
         """
         Resolve a canonical field definition deterministically.
 
-        Resolution is restricted to the given entity type. This avoids treating
-        entity type as a soft signal and instead uses it as a hard filter.
+        Resolution is restricted to the given entity type. If more than one
+        candidate remains, lightweight node context is used as a tie-breaker.
         """
         normalized_label = self._normalize_text(raw_label)
         key = (entity_type, normalized_label)
@@ -157,13 +181,16 @@ class DataHarmonizer:
                 f"under entity type '{entity_type.value}'."
             )
 
-        if len(candidates) > 1:
-            raise LabelMappingError(
-                f"Ambiguous canonical mapping for raw label '{raw_label}' "
-                f"under entity type '{entity_type.value}'."
+        if len(candidates) == 1:
+            definition = candidates[0]
+        else:
+            definition = self._disambiguate_with_context(
+                candidates=candidates,
+                source_node_type=source_node_type,
+                neighbor_labels=neighbor_labels or [],
+                raw_label=raw_label,
+                entity_type=entity_type,
             )
-
-        definition = candidates[0]
 
         exact_source_field_match = raw_label == definition.source_field
         exact_alias_match = raw_label in definition.allowed_raw_labels
@@ -180,7 +207,169 @@ class DataHarmonizer:
         else:
             label_confidence = 0.9
 
+        context_bonus = self._context_confidence_bonus(
+            definition=definition,
+            source_node_type=source_node_type,
+            neighbor_labels=neighbor_labels or [],
+        )
+
+        return definition, min(1.0, round(label_confidence + context_bonus, 4))
+
+    def _resolve_definition_with_similarity(
+        self,
+        observation: RawObservation,
+    ) -> tuple[CanonicalFieldDefinition, float]:
+        """
+        Fallback resolution using lexical similarity ranking.
+
+        Similarity is restricted to the same entity type first. If nothing remains,
+        all candidates are considered.
+        """
+        query = build_observation_query(observation)
+
+        same_entity_candidates = [
+            candidate
+            for candidate in self._similarity_candidates
+            if candidate.entity_type == observation.entity_type.value
+        ]
+
+        candidate_pool = same_entity_candidates if same_entity_candidates else self._similarity_candidates
+        ranked = rank_candidates(query, candidate_pool)
+
+        if not ranked:
+            raise LabelMappingError(
+                f"No canonical mapping found for raw label '{observation.raw_label}' "
+                f"under entity type '{observation.entity_type.value}'."
+            )
+
+        top_match = ranked[0]
+
+        if top_match.score < self._similarity_threshold:
+            raise LabelMappingError(
+                f"No sufficiently confident canonical mapping found for raw label "
+                f"'{observation.raw_label}' under entity type '{observation.entity_type.value}'. "
+                f"Best similarity score was {top_match.score:.3f}."
+            )
+
+        definition = self._definition_from_similarity_candidate(
+            source_model=top_match.candidate.source_model,
+            source_field=top_match.candidate.source_field,
+            entity_type=observation.entity_type,
+        )
+
+        label_confidence = round(min(0.85, 0.45 + 0.5 * top_match.score), 4)
         return definition, label_confidence
+
+    def _definition_from_similarity_candidate(
+        self,
+        source_model: str,
+        source_field: str,
+        entity_type: EntityType,
+    ) -> CanonicalFieldDefinition:
+        for definition in FLAT_FIELD_DEFINITIONS:
+            if (
+                definition.source_model == source_model
+                and definition.source_field == source_field
+                and definition.entity_type == entity_type
+            ):
+                return definition
+
+        raise LabelMappingError(
+            f"Similarity candidate could not be resolved back to a canonical definition "
+            f"for source model '{source_model}', source field '{source_field}', "
+            f"and entity type '{entity_type.value}'."
+        )
+
+    def _disambiguate_with_context(
+        self,
+        candidates: list[CanonicalFieldDefinition],
+        source_node_type: str | None,
+        neighbor_labels: list[str],
+        raw_label: str,
+        entity_type: EntityType,
+    ) -> CanonicalFieldDefinition:
+        """
+        Choose the best candidate using lightweight node context.
+
+        Current signals:
+        - source_node_type matching the source model or entity type
+        - overlap between neighbor labels and the candidate's field aliases
+        """
+        scored: list[tuple[float, CanonicalFieldDefinition]] = []
+
+        for candidate in candidates:
+            score = 0.0
+
+            if source_node_type:
+                normalized_node_type = self._normalize_text(source_node_type)
+
+                if normalized_node_type == self._normalize_text(candidate.source_model):
+                    score += 1.0
+
+                if normalized_node_type == self._normalize_text(candidate.entity_type.value):
+                    score += 0.75
+
+            neighbor_tokens = {self._normalize_text(label) for label in neighbor_labels}
+            candidate_tokens = {
+                self._normalize_text(candidate.source_field),
+                *(self._normalize_text(alias) for alias in candidate.allowed_raw_labels),
+            }
+
+            overlap = neighbor_tokens & candidate_tokens
+            score += 0.1 * len(overlap)
+
+            scored.append((score, candidate))
+
+        scored.sort(
+            key=lambda item: (
+                -item[0],
+                item[1].entity_type.value,
+                item[1].source_model,
+                item[1].source_field,
+            )
+        )
+
+        top_score = scored[0][0]
+        top_candidates = [candidate for score, candidate in scored if score == top_score]
+
+        if len(top_candidates) != 1:
+            raise LabelMappingError(
+                f"Ambiguous canonical mapping for raw label '{raw_label}' "
+                f"under entity type '{entity_type.value}'."
+            )
+
+        return top_candidates[0]
+
+    def _context_confidence_bonus(
+        self,
+        definition: CanonicalFieldDefinition,
+        source_node_type: str | None,
+        neighbor_labels: list[str],
+    ) -> float:
+        """
+        Add a small confidence bonus when the local node context supports
+        the chosen definition.
+        """
+        bonus = 0.0
+
+        if source_node_type:
+            normalized_node_type = self._normalize_text(source_node_type)
+
+            if normalized_node_type == self._normalize_text(definition.source_model):
+                bonus += 0.03
+            elif normalized_node_type == self._normalize_text(definition.entity_type.value):
+                bonus += 0.02
+
+        neighbor_tokens = {self._normalize_text(label) for label in neighbor_labels}
+        candidate_tokens = {
+            self._normalize_text(definition.source_field),
+            *(self._normalize_text(alias) for alias in definition.allowed_raw_labels),
+        }
+
+        overlap_count = len(neighbor_tokens & candidate_tokens)
+        bonus += min(0.02, 0.005 * overlap_count)
+
+        return round(bonus, 4)
 
     def _normalize_value_and_unit(
         self,

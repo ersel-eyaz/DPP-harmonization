@@ -53,13 +53,72 @@ class ScoredCandidate:
     score: float
 
 
+def _split_camel_case(text: str) -> str:
+    """
+    Insert spaces into camelCase / PascalCase strings.
+
+    Example:
+    - runtimeHours -> runtime Hours
+    - massGram -> mass Gram
+    - GHGEmissionRecord -> GHG Emission Record
+    """
+    step1 = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    step2 = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", step1)
+    return step2
+
+
+def _normalize_token(token: str) -> str:
+    """
+    Apply lightweight token normalization.
+
+    This is intentionally simple:
+    - lowercase
+    - singularize a few common plural forms
+    - normalize a few domain-relevant near-synonyms
+    """
+    token = token.lower().strip()
+
+    plural_map = {
+        "grams": "gram",
+        "hours": "hour",
+        "events": "event",
+        "cycles": "cycle",
+        "kilometers": "kilometer",
+        "counts": "count",
+    }
+    token = plural_map.get(token, token)
+
+    synonym_map = {
+        "hrs": "hour",
+        "hr": "hour",
+        "runtime": "operating",
+        "mass": "weight",
+        "travel": "transport",
+        "carbon": "ghg",
+        "co2e": "ghg",
+    }
+    token = synonym_map.get(token, token)
+
+    return token
+
+
 def normalize_for_similarity(text: str) -> list[str]:
     """
-    Lowercase text and extract simple alphanumeric tokens.
-    Underscores are treated as separators.
+    Normalize text into comparable lexical tokens.
+
+    Behavior:
+    - split camelCase / PascalCase
+    - treat underscores and hyphens as separators
+    - lowercase
+    - extract alphanumeric tokens
+    - apply light normalization
     """
-    normalized = text.lower().replace("_", " ")
-    return re.findall(r"[a-z0-9]+", normalized)
+    split_text = _split_camel_case(text)
+    normalized = split_text.replace("_", " ").replace("-", " ")
+    raw_tokens = re.findall(r"[a-zA-Z0-9]+", normalized)
+
+    tokens = [_normalize_token(token) for token in raw_tokens]
+    return [token for token in tokens if token]
 
 
 def lexical_similarity_score(query_text: str, candidate_text: str) -> float:
@@ -162,7 +221,7 @@ def build_observation_query(observation: RawObservation) -> ObservationQuery:
     Build a query representation from a raw observation.
 
     The core text stays intentionally compact and label-centered because this
-    module is now treated as a fallback suggestion tool rather than the main
+    module is treated as a fallback suggestion tool rather than the main
     structured resolver.
 
     Contextual metadata is still preserved for inspection and future

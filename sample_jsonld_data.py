@@ -1,5 +1,3 @@
-# sample_jsonld_data.py
-
 EXAMPLE_JSONLD_DOCUMENT = {
     "@context": {
         "schema": "https://schema.org/",
@@ -8,62 +6,62 @@ EXAMPLE_JSONLD_DOCUMENT = {
     "@graph": [
         {
             "@id": "dpp-001",
-            "@type": "schema:Product",
-            "operatingHRS": {
+            "@type": "dpp:DPPInstance",
+            "runtime_hours_total": {
                 "@value": 120.0,
-                "unitCode": "h"
+                "unitCode": "hours"
             },
-            "cleaningCount": {
+            "cleaning_events_total": {
                 "@value": 14.0,
-                "unitCode": "count"
+                "unitCode": "events"
             },
-            "chalkCount": {
+            "descale_event_count": {
                 "@value": 3.0,
                 "unitCode": "count"
             },
-            "brewingCount": {
+            "brew_cycle_total": {
                 "@value": 560.0,
-                "unitCode": "count"
+                "unitCode": "cycles"
             }
         },
         {
             "@id": "mat-001",
             "@type": "dpp:MaterialInstance",
-            "weightGRM": {
+            "material_mass_grams": {
                 "@value": 540.0,
-                "unitCode": "g"
+                "unitCode": "gram"
             },
-            "percentRecycled": {
+            "recycled_material_share": {
                 "@value": 35.0,
-                "unitCode": "%"
+                "unitCode": "percent"
             },
-            "purityLevel": {
+            "material_purity_percentage": {
                 "@value": 92.5,
-                "unitCode": "%"
+                "unitCode": "percentage"
             }
         },
         {
             "@id": "part-static-001",
             "@type": "dpp:PartStatic",
-            "weightGRM": {
+            "component_mass_grams": {
                 "@value": 1800.0,
                 "unitCode": "g"
             }
         },
         {
             "@id": "transport-001",
-            "@type": "schema:TransferAction",
-            "distanceKM": {
+            "@type": "dpp:TransportStep",
+            "travel_distance_km": {
                 "@value": 85.0,
-                "unitCode": "km"
+                "unitCode": "kilometers"
             }
         },
         {
             "@id": "ghg-001",
             "@type": "dpp:GHGEmissionRecord",
-            "emissions_kg_co2e": {
+            "carbon_emissions_kg_co2e": {
                 "@value": 12.4,
-                "unitCode": "kg_co2e"
+                "unitCode": "kg co2e"
             }
         }
     ]
