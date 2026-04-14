@@ -7,14 +7,18 @@ EXAMPLE_JSONLD_DOCUMENT = {
         {
             "@id": "dpp-001",
             "@type": "dpp:DPPInstance",
-            "runtime_hours_total": {
+
+            # rule-based
+            "operatingHours": {
                 "@value": 120.0,
                 "unitCode": "hours"
             },
-            "cleaning_events_total": {
+            "cleaning_cycles": {
                 "@value": 14.0,
-                "unitCode": "events"
+                "unitCode": "count"
             },
+
+            # similarity fallback
             "descale_event_count": {
                 "@value": 3.0,
                 "unitCode": "count"
@@ -22,18 +26,27 @@ EXAMPLE_JSONLD_DOCUMENT = {
             "brew_cycle_total": {
                 "@value": 560.0,
                 "unitCode": "cycles"
+            },
+
+            # negative / unmapped
+            "backupLink": {
+                "@value": "https://example.org/dpp-backup/dpp-001"
             }
         },
         {
             "@id": "mat-001",
             "@type": "dpp:MaterialInstance",
+
+            # rule-based
+            "percentRecycled": {
+                "@value": 35.0,
+                "unitCode": "percent"
+            },
+
+            # similarity fallback
             "material_mass_grams": {
                 "@value": 540.0,
                 "unitCode": "gram"
-            },
-            "recycled_material_share": {
-                "@value": 35.0,
-                "unitCode": "percent"
             },
             "material_purity_percentage": {
                 "@value": 92.5,
@@ -43,24 +56,47 @@ EXAMPLE_JSONLD_DOCUMENT = {
         {
             "@id": "part-static-001",
             "@type": "dpp:PartStatic",
-            "component_mass_grams": {
+
+            # rule-based
+            "componentWeightGRM": {
                 "@value": 1800.0,
                 "unitCode": "g"
+            },
+
+            # hard / likely unmapped for now
+            "manufacturer_name": {
+                "@value": "Acme Components"
             }
         },
         {
             "@id": "transport-001",
             "@type": "dpp:TransportStep",
-            "travel_distance_km": {
+
+            # rule-based
+            "transportDistance": {
                 "@value": 85.0,
+                "unitCode": "km"
+            },
+
+            # similarity fallback
+            "travel_distance_km": {
+                "@value": 91.0,
                 "unitCode": "kilometers"
             }
         },
         {
             "@id": "ghg-001",
             "@type": "dpp:GHGEmissionRecord",
-            "carbon_emissions_kg_co2e": {
+
+            # rule-based
+            "ghgEmissions": {
                 "@value": 12.4,
+                "unitCode": "kg_co2e"
+            },
+
+            # similarity fallback
+            "carbon_emissions_kg_co2e": {
+                "@value": 13.1,
                 "unitCode": "kg co2e"
             }
         }

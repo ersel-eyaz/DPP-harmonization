@@ -23,6 +23,14 @@ class HarmonizationRecord(BaseModel):
     normalized_unit: str = Field(..., min_length=1)
     confidence: float = Field(..., ge=0.0, le=1.0)
 
+    resolution_method: str = Field(..., min_length=1)
+    matched_source_field: str = Field(..., min_length=1)
+    matched_source_model: str = Field(..., min_length=1)
+
+    label_confidence: float = Field(..., ge=0.0, le=1.0)
+    unit_confidence: float = Field(..., ge=0.0, le=1.0)
+    similarity_score: float | None = Field(default=None, ge=0.0, le=1.0)
+
 
 class RawObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")

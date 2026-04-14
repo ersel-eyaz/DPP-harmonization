@@ -49,7 +49,13 @@ def main() -> None:
             f"target_field={record.target_field}, "
             f"normalized_value={record.normalized_value}, "
             f"normalized_unit={record.normalized_unit}, "
-            f"confidence={record.confidence}"
+            f"confidence={record.confidence}, "
+            f"resolution_method={record.resolution_method}, "
+            f"matched_source_model={record.matched_source_model}, "
+            f"matched_source_field={record.matched_source_field}, "
+            f"label_confidence={record.label_confidence}, "
+            f"unit_confidence={record.unit_confidence}, "
+            f"similarity_score={record.similarity_score}"
         )
 
     print()

@@ -53,6 +53,13 @@ class HarmonizationBatchResult:
     dataset: HarmonizedDataset = field(default_factory=HarmonizedDataset)
     unmapped: list[UnmappedObservation] = field(default_factory=list)
 
+@dataclass(slots=True)
+class ResolutionResult:
+    definition: CanonicalFieldDefinition
+    label_confidence: float
+    resolution_method: str
+    similarity_score: float | None = None
+
 
 class DataHarmonizer:
     """
@@ -73,25 +80,31 @@ class DataHarmonizer:
         self._similarity_candidates = build_canonical_candidates()
 
     def harmonize_observation(self, observation: RawObservation) -> HarmonizationRecord:
-        definition, label_confidence = self._resolve_definition_with_fallback(observation)
+        resolution = self._resolve_definition_with_fallback(observation)
 
         normalized_value, unit_confidence = self._normalize_value_and_unit(
             raw_value=observation.raw_value,
             raw_unit=observation.raw_unit,
-            concept=definition.canonical_concept,
-            target_unit=definition.normalized_unit,
+            concept=resolution.definition.canonical_concept,
+            target_unit=resolution.definition.normalized_unit,
         )
 
-        confidence = self._combine_confidences(label_confidence, unit_confidence)
+        confidence = self._combine_confidences(resolution.label_confidence, unit_confidence)
 
         return HarmonizationRecord(
             raw_label=observation.raw_label,
             raw_value=observation.raw_value,
-            canonical_concept=definition.canonical_concept,
-            target_field=definition.target_field,
+            canonical_concept=resolution.definition.canonical_concept,
+            target_field=resolution.definition.target_field,
             normalized_value=normalized_value,
-            normalized_unit=definition.normalized_unit.value,
+            normalized_unit=resolution.definition.normalized_unit.value,
             confidence=confidence,
+            resolution_method=resolution.resolution_method,
+            matched_source_field=resolution.definition.source_field,
+            matched_source_model=resolution.definition.source_model,
+            label_confidence=resolution.label_confidence,
+            unit_confidence=unit_confidence,
+            similarity_score=resolution.similarity_score,
         )
 
     def harmonize_dataset(self, observations: list[RawObservation]) -> HarmonizationBatchResult:
@@ -144,19 +157,31 @@ class DataHarmonizer:
     def _resolve_definition_with_fallback(
         self,
         observation: RawObservation,
-    ) -> tuple[CanonicalFieldDefinition, float]:
+    ) -> ResolutionResult:
         """
         Try deterministic resolution first. If it fails, use similarity-based fallback.
         """
         try:
-            return self._resolve_definition(
+            definition, label_confidence = self._resolve_definition(
                 entity_type=observation.entity_type,
                 raw_label=observation.raw_label,
                 source_node_type=observation.source_node_type,
                 neighbor_labels=observation.neighbor_labels,
             )
+            return ResolutionResult(
+                definition=definition,
+                label_confidence=label_confidence,
+                resolution_method="rule_based",
+                similarity_score=None,
+            )
         except LabelMappingError:
-            return self._resolve_definition_with_similarity(observation)
+            definition, label_confidence, similarity_score = self._resolve_definition_with_similarity(observation)
+            return ResolutionResult(
+                definition=definition,
+                label_confidence=label_confidence,
+                resolution_method="similarity_fallback",
+                similarity_score=similarity_score,
+            )
 
     def _resolve_definition(
         self,
@@ -218,7 +243,7 @@ class DataHarmonizer:
     def _resolve_definition_with_similarity(
         self,
         observation: RawObservation,
-    ) -> tuple[CanonicalFieldDefinition, float]:
+    ) -> tuple[CanonicalFieldDefinition, float, float]:
         """
         Fallback resolution using lexical similarity ranking.
 
@@ -258,7 +283,7 @@ class DataHarmonizer:
         )
 
         label_confidence = round(min(0.85, 0.45 + 0.5 * top_match.score), 4)
-        return definition, label_confidence
+        return definition, label_confidence, top_match.score
 
     def _definition_from_similarity_candidate(
         self,
