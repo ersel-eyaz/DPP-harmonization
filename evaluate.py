@@ -99,7 +99,7 @@ def print_detailed_results(results: list[dict]) -> None:
 
 
 def main() -> None:
-    harmonizer = DataHarmonizer()
+    harmonizer = DataHarmonizer(similarity_threshold=0.30)
     results = [evaluate_case(harmonizer, case) for case in EXAMPLE_EVALUATION_CASES]
 
     print_summary(results)
