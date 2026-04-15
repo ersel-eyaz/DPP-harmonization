@@ -60,6 +60,14 @@ class ResolutionResult:
     resolution_method: str
     similarity_score: float | None = None
 
+@dataclass(slots=True)
+class SimilarityDecision:
+    accepted: bool
+    reason: str
+    top_score: float
+    second_score: float | None = None
+    margin: float | None = None
+
 
 class DataHarmonizer:
     """
@@ -268,12 +276,17 @@ class DataHarmonizer:
             )
 
         top_match = ranked[0]
+        second_score = ranked[1].score if len(ranked) > 1 else None
+        decision = self._decide_similarity_match(
+            top_score=top_match.score,
+            second_score=second_score,
+        )
 
-        if top_match.score < self._similarity_threshold:
+        if not decision.accepted:
             raise LabelMappingError(
                 f"No sufficiently confident canonical mapping found for raw label "
                 f"'{observation.raw_label}' under entity type '{observation.entity_type.value}'. "
-                f"Best similarity score was {top_match.score:.3f}."
+                f"Best similarity score was {decision.top_score:.3f}."
             )
 
         definition = self._definition_from_similarity_candidate(
@@ -284,6 +297,35 @@ class DataHarmonizer:
 
         label_confidence = round(min(0.85, 0.45 + 0.5 * top_match.score), 4)
         return definition, label_confidence, top_match.score
+
+    def _decide_similarity_match(
+        self,
+        top_score: float,
+        second_score: float | None = None,
+    ) -> SimilarityDecision:
+        """
+        Decide whether a similarity-ranked top match should be accepted.
+
+        For now, acceptance still depends only on the configured similarity
+        threshold. However, the returned object also exposes second_score
+        and margin so that later decision logic can incorporate ambiguity,
+        relative ranking strength, or contextual evidence.
+        """
+        margin = None if second_score is None else top_score - second_score
+        accepted = top_score >= self._similarity_threshold
+
+        if accepted:
+            reason = "accepted_by_threshold"
+        else:
+            reason = "below_similarity_threshold"
+
+        return SimilarityDecision(
+            accepted=accepted,
+            reason=reason,
+            top_score=top_score,
+            second_score=second_score,
+            margin=margin,
+        )
 
     def _definition_from_similarity_candidate(
         self,

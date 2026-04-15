@@ -78,7 +78,7 @@ def _extract_node(
 
     entity_id = _resolve_entity_id(node)
     source_node_type = _resolve_node_type_name(node)
-    neighbor_labels = _collect_neighbor_labels(node)
+    all_neighbor_labels = _collect_neighbor_labels(node)
 
     for key, value in node.items():
         if key in {"@context", "@id", "@type"}:
@@ -86,6 +86,11 @@ def _extract_node(
 
         raw_label = _strip_prefix(key)
         extracted_items = _extract_property_values(value)
+
+        filtered_neighbor_labels = [
+            label for label in all_neighbor_labels
+            if label != raw_label
+        ]
 
         for raw_value, raw_unit in extracted_items:
             dataset.add(
@@ -99,10 +104,9 @@ def _extract_node(
                     source_file="jsonld_document",
                     source_node_type=source_node_type,
                     source_path=f"{node_path}.{raw_label}",
-                    neighbor_labels=neighbor_labels,
+                    neighbor_labels=filtered_neighbor_labels,
                 )
             )
-
 
 def _collect_neighbor_labels(node: dict[str, Any]) -> list[str]:
     labels: list[str] = []
