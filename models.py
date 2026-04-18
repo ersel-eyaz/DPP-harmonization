@@ -1,180 +1,275 @@
-# Source prototype models enriched with harmonization metadata.
-# Each relevant field carries semantic information that can later be used
-# to build the canonical registry automatically.
-
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Optional
 
-from pydantic import BaseModel, Field
-
-from enums import CanonicalConcept, EntityType, NormalizedUnit
-
-
-def semantic_field(
-    *,
-    default: Any,
-    canonical_concept: CanonicalConcept,
-    target_field: str,
-    normalized_unit: NormalizedUnit,
-    entity_type: EntityType,
-    aliases: list[str],
-    description: str,
-    **field_kwargs: Any,
-) -> Any:
-    """
-    Helper for defining a Pydantic field with harmonization metadata.
-    """
-    return Field(
-        default=default,
-        json_schema_extra={
-            "harmonization": {
-                "canonical_concept": canonical_concept.value,
-                "target_field": target_field,
-                "normalized_unit": normalized_unit.value,
-                "entity_type": entity_type.value,
-                "aliases": aliases,
-                "description": description,
-            }
-        },
-        **field_kwargs,
-    )
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class DPPInstance(BaseModel):
-    id: str | None = Field(default=None)
-
-    cleaningCount: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.CLEANING_COUNT,
-        target_field="cleaning_count",
-        normalized_unit=NormalizedUnit.COUNT,
-        entity_type=EntityType.DPP_INSTANCE,
-        aliases=["cleaningCount", "cleanings", "cleaning_cycles"],
-        description="Number of cleaning events recorded for a product instance.",
-    )
-
-    chalkCount: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.DESCALING_COUNT,
-        target_field="descaling_count",
-        normalized_unit=NormalizedUnit.COUNT,
-        entity_type=EntityType.DPP_INSTANCE,
-        aliases=["chalkCount", "descalingCount", "descale_cycles"],
-        description="Number of descaling events recorded for a product instance.",
-    )
-
-    brewingCount: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.BREWING_COUNT,
-        target_field="brewing_count",
-        normalized_unit=NormalizedUnit.COUNT,
-        entity_type=EntityType.DPP_INSTANCE,
-        aliases=["brewingCount", "brewCount", "brewing_cycles"],
-        description="Number of brewing cycles recorded for a product instance.",
-    )
-
-    operatingHRS: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.OPERATING_HOURS,
-        target_field="operating_hours",
-        normalized_unit=NormalizedUnit.HOURS,
-        entity_type=EntityType.DPP_INSTANCE,
-        aliases=["operatingHRS", "operatingHours", "runtimeHours"],
-        description="Cumulative operating time of a product instance.",
-    )
-
-    backupLink: str | None = Field(default=None)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
-class MaterialInstance(BaseModel):
-    batchNumber: str | None = Field(default=None)
-
-    weightGRM: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.WEIGHT,
-        target_field="weight",
-        normalized_unit=NormalizedUnit.GRAM,
-        entity_type=EntityType.MATERIAL_INSTANCE,
-        aliases=["weightGRM", "weight_g", "massGram"],
-        description="Mass of a material instance.",
-    )
-
-    percentRecycled: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        le=100.0,
-        canonical_concept=CanonicalConcept.RECYCLED_CONTENT,
-        target_field="recycled_content",
-        normalized_unit=NormalizedUnit.PERCENT,
-        entity_type=EntityType.MATERIAL_INSTANCE,
-        aliases=["percentRecycled", "recycledPercent", "recycled_content_pct"],
-        description="Share of recycled material content.",
-    )
-
-    purityLevel: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        le=100.0,
-        canonical_concept=CanonicalConcept.PURITY_LEVEL,
-        target_field="purity_level",
-        normalized_unit=NormalizedUnit.PERCENT,
-        entity_type=EntityType.MATERIAL_INSTANCE,
-        aliases=["purityLevel", "purity", "purity_pct"],
-        description="Purity level of the material instance.",
-    )
+def _utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
-class PartStatic(BaseModel):
-    id: str | None = Field(default=None)
-
-    weightGRM: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.WEIGHT,
-        target_field="weight",
-        normalized_unit=NormalizedUnit.GRAM,
-        entity_type=EntityType.PART_STATIC,
-        aliases=["weightGRM", "partWeightGRM", "componentWeightGRM"],
-        description="Mass of a static part definition.",
-    )
+# ---------------------------------------------------------------------------
+# GHG enums
+# ---------------------------------------------------------------------------
 
 
-class TransportStep(BaseModel):
-    distanceKM: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.TRANSPORT_DISTANCE,
-        target_field="transport_distance",
-        normalized_unit=NormalizedUnit.KILOMETER,
-        entity_type=EntityType.TRANSPORT_STEP,
-        aliases=["distanceKM", "distance_km", "transportDistance"],
-        description="Distance covered by a transport step.",
-    )
+class GHGScope(str, Enum):
+    SCOPE_1 = "Scope 1"
+    SCOPE_2 = "Scope 2"
+    SCOPE_3 = "Scope 3"
+
+
+class Scope3Category(str, Enum):
+    PURCHASED_GOODS_AND_SERVICES = "Purchased goods and services"
+    CAPITAL_GOODS = "Capital goods"
+    FUEL_AND_ENERGY_RELATED_ACTIVITIES = "Fuel- and energy-related activities not included in Scope 1 or 2"
+    UPSTREAM_TRANSPORTATION_AND_DISTRIBUTION = "Upstream transportation and distribution"
+    WASTE_GENERATED_IN_OPERATIONS = "Waste generated in operations"
+    BUSINESS_TRAVEL = "Business travel"
+    EMPLOYEE_COMMUTING = "Employee commuting"
+    UPSTREAM_LEASED_ASSETS = "Upstream leased assets"
+    DOWNSTREAM_TRANSPORTATION_AND_DISTRIBUTION = "Downstream transportation and distribution"
+    PROCESSING_OF_SOLD_PRODUCTS = "Processing of sold products"
+    USE_OF_SOLD_PRODUCTS = "Use of sold products"
+    END_OF_LIFE_TREATMENT = "End-of-life treatment of sold products"
+    DOWNSTREAM_LEASED_ASSETS = "Downstream leased assets"
+    FRANCHISES = "Franchises"
+    INVESTMENTS = "Investments"
+
+
+class ActivityType(str, Enum):
+    ELECTRICITY_CONSUMPTION = "electricity_consumption"
+    DISTANCE_TRAVELED = "distance_traveled"
+    MATERIAL_PURCHASE = "material_purchase"
+    WATER_USAGE = "water_usage"
+    HEAT_USAGE = "heat_usage"
+    WASTE_TREATMENT = "waste_treatment"
+    FUEL_CONSUMPTION = "fuel_consumption"
+
+
+class UnitCode(str, Enum):
+    KWH = "kWh"
+    KM = "km"
+    KG = "kg"
+    LTR = "ltr"
+    M3 = "m3"
+    TONNE = "t"
+    PIECE = "unit"
+    KG_CO2E_PER_KWH = "kgCO2e/kWh"
+    KG_CO2E_PER_KG = "kgCO2e/kg"
+    KG_CO2E_PER_KM = "kgCO2e/km"
+
+
+# ---------------------------------------------------------------------------
+# GHG models
+# ---------------------------------------------------------------------------
+
+
+class EmissionFactor(BaseModel):
+    description: str | None = None
+    value: float
+    unit: UnitCode
+    technology: Optional[str] = None
+
+    @field_validator("value")
+    @classmethod
+    def _non_negative_value(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("value must be non-negative")
+        return float(v)
+
+
+class ActivityData(BaseModel):
+    activity_type: ActivityType
+    quantity: float
+    unit: UnitCode
+
+    @field_validator("quantity")
+    @classmethod
+    def _non_negative_quantity(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("quantity must be non-negative")
+        return float(v)
 
 
 class GHGEmissionRecord(BaseModel):
-    emissions_kg_co2e: float = semantic_field(
-        default=0.0,
-        ge=0.0,
-        canonical_concept=CanonicalConcept.GHG_EMISSIONS,
-        target_field="ghg_emissions",
-        normalized_unit=NormalizedUnit.KILOGRAM_CO2E,
-        entity_type=EntityType.GHG_EMISSION_RECORD,
-        aliases=["emissions_kg_co2e", "co2e", "ghgEmissions"],
-        description="Greenhouse gas emissions expressed in kg CO2e.",
+    scope: GHGScope
+    scope3_category: Optional[Scope3Category] = None
+    activity: ActivityData
+    emission_factor: EmissionFactor
+    emissions_kg_co2e: float
+    calculation_method: str
+    provenance: Optional[str] = None
+
+    @field_validator("emissions_kg_co2e")
+    @classmethod
+    def _non_negative_emissions(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("emissions_kg_co2e must be non-negative")
+        return float(v)
+
+
+# ---------------------------------------------------------------------------
+# Process model
+# ---------------------------------------------------------------------------
+
+
+class ProcessStep(BaseModel):
+    type_: str = Field(default="ProcessStep", alias="type")
+    beginDate: Optional[datetime] = Field(default_factory=_utc_now)
+    endDate: Optional[datetime] = Field(default_factory=_utc_now)
+    ghgEmissionRecords: list[GHGEmissionRecord] = Field(default_factory=list)
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
     )
 
 
-SOURCE_MODELS = (
-    DPPInstance,
-    MaterialInstance,
-    PartStatic,
-    TransportStep,
-    GHGEmissionRecord,
-)
+# ---------------------------------------------------------------------------
+# Material models
+# ---------------------------------------------------------------------------
+
+
+class MaterialStatic(BaseModel):
+    id: str
+    type_: str = Field(default="MaterialStatic", alias="type")
+
+    hazardous: bool = False
+    rareEarth: bool = False
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+
+class MaterialInstance(BaseModel):
+    id: str
+    type_: str = Field(default="MaterialInstance", alias="type")
+
+    materialStaticLink: MaterialStatic
+    weightGRM: float
+    percentRecycled: float
+    purityLevel: float
+
+    @field_validator("weightGRM")
+    @classmethod
+    def _non_negative_weight(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("weightGRM must be non-negative")
+        return float(v)
+
+    @field_validator("percentRecycled")
+    @classmethod
+    def _percent_range(cls, v: float) -> float:
+        if not 0 <= v <= 100:
+            raise ValueError("percentRecycled must be between 0 and 100")
+        return float(v)
+
+    @field_validator("purityLevel")
+    @classmethod
+    def _non_negative_purity(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("purityLevel must be non-negative")
+        return float(v)
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Part models
+# ---------------------------------------------------------------------------
+
+
+class PartStatic(BaseModel):
+    id: str
+    type_: str = Field(default="PartStatic", alias="type")
+
+    weightGRM: float
+    mtbfHRS: float
+
+    @field_validator("weightGRM")
+    @classmethod
+    def _positive_weight(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("weightGRM must be positive")
+        return float(v)
+
+    @field_validator("mtbfHRS")
+    @classmethod
+    def _non_negative_mtbf(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("mtbfHRS must be non-negative")
+        return float(v)
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+
+class PartInstance(BaseModel):
+    id: str
+    type_: str = Field(default="PartInstance", alias="type")
+
+    partStaticLink: PartStatic
+    isModular: bool = Field(default=False)
+    hasFailstate: bool = Field(default=False)
+
+    compositeParts: list["PartInstance"] = Field(default_factory=list)
+    compositeMaterials: list[MaterialInstance] = Field(default_factory=list)
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# DPP model
+# ---------------------------------------------------------------------------
+
+
+class DPPInstance(BaseModel):
+    id: str
+    type_: str = Field(default="DPPInstance", alias="type")
+
+    partInstanceLink: Optional[PartInstance] = None
+
+    operatingHRS: float = 0.0
+    cleaningCount: float = 0.0
+    chalkCount: float = 0.0
+    brewingCount: float = 0.0
+
+    @field_validator("operatingHRS", "cleaningCount", "chalkCount", "brewingCount")
+    @classmethod
+    def _non_negative_counters(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("Counters must be non-negative")
+        return float(v)
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Forward refs
+# ---------------------------------------------------------------------------
+
+PartInstance.model_rebuild()
+DPPInstance.model_rebuild()
